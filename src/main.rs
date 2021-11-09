@@ -1,160 +1,35 @@
-use std::any::type_name;
-use std::fmt::Formatter;
-use std::marker::PhantomData;
-
 use frunk_core::hlist;
-use frunk_core::hlist::{HCons, HList, HNil};
-use frunk_core::traits::IntoReverse;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde::de::{DeserializeOwned, Error, MapAccess, Visitor};
-use serde::de::value::MapDeserializer;
-use serde::ser::SerializeMap;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-struct HMap<T>(T);
+use crate::hlabeledlist::{HLabelledMap, Labelled};
+use crate::hmap::HMap;
 
-trait InnerType {
-    type Inner;
-}
+mod hlabeledlist;
+mod hmap;
 
-impl<T> InnerType for HMap<T> {
-    type Inner = T;
-}
-
-impl<T> HMap<T> {
-    pub fn as_ref(&self) -> HMapRef<T> {
-        HMapRef(&self.0)
-    }
-}
-
-#[derive(Debug)]
-struct HMapRef<'a, T>(&'a T);
-
-impl<'a, T> Serialize for HMapRef<'a, T>
-    where
-        T: HList,
-        Self: MapSerializable,
+fn decl_type_wrapper<T, F, I>(_dep: &T, f: F, input: I) -> T
+where
+    F: FnOnce(I) -> T,
 {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-    {
-        let mut map = serializer.serialize_map(Some(T::LEN))?;
-        self.serialize_map(&mut map)?;
-        map.end()
-    }
-}
-
-trait MapSerializable {
-    fn serialize_map<S: SerializeMap>(&self, serializer: &mut S) -> Result<(), S::Error>;
-}
-
-impl<'a, K, V, T> MapSerializable for HMapRef<'a, HCons<(K, V), T>>
-    where
-        K: Serialize,
-        V: Serialize,
-        HMapRef<'a, T>: MapSerializable,
-{
-    fn serialize_map<S: SerializeMap>(&self, serializer: &mut S) -> Result<(), S::Error> {
-        let (k, v) = &self.0.head;
-        serializer.serialize_entry(k, v)?;
-        HMapRef(&self.0.tail).serialize_map(serializer)
-    }
-}
-
-impl<'a, K, V, T> MapSerializable for HMapRef<'a, HCons<Option<(K, V)>, T>>
-    where
-        K: Serialize,
-        V: Serialize,
-        HMapRef<'a, T>: MapSerializable,
-{
-    fn serialize_map<S: SerializeMap>(&self, serializer: &mut S) -> Result<(), S::Error> {
-        if let Some((k, v)) = &self.0.head {
-            serializer.serialize_entry(k, v)?;
-        }
-        HMapRef(&self.0.tail).serialize_map(serializer)
-    }
-}
-
-impl MapSerializable for HMapRef<'_, HNil> {
-    fn serialize_map<S: SerializeMap>(&self, _serializer: &mut S) -> Result<(), S::Error> {
-        Ok(())
-    }
-}
-
-struct HMapVisitor<L>(PhantomData<L>);
-
-impl<L> Default for HMapVisitor<L> {
-    fn default() -> Self {
-        HMapVisitor(PhantomData)
-    }
-}
-
-impl<'de, L> Visitor<'de> for HMapVisitor<L>
-    where
-        L: IntoReverse,
-        L::Output: MapDeserializable<'de>,
-        L::Output: IntoReverse<Output=L>,
-{
-    type Value = HMap<L>;
-
-    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
-        formatter.write_str("a heterogeneous map")
-    }
-
-    fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
-        where
-            A: MapAccess<'de>,
-    {
-        let (reversed, _) = <L::Output as MapDeserializable<'de>>::visit_map(map)?;
-        Ok(HMap(reversed.into_reverse()))
-    }
-}
-
-trait MapDeserializable<'de>: HList {
-    fn visit_map<A: MapAccess<'de>>(map: A) -> Result<(Self, A), A::Error>;
-}
-
-impl<'de, K, V, T> MapDeserializable<'de> for HCons<(K, V), T>
-    where
-        K: Deserialize<'de>,
-        V: Deserialize<'de>,
-        T: MapDeserializable<'de>,
-{
-    fn visit_map<A: MapAccess<'de>>(map: A) -> Result<(Self, A), A::Error> {
-        let (append, mut map) = T::visit_map(map)?;
-        let (k, v) = map.next_entry()?.expect("unexpected eof");
-        Ok((append.prepend((k, v)), map))
-    }
-}
-
-impl<'de> MapDeserializable<'de> for HNil {
-    fn visit_map<A: MapAccess<'de>>(map: A) -> Result<(Self, A), A::Error> {
-        Ok((HNil, map))
-    }
-}
-
-impl Default for HMap<HNil> {
-    fn default() -> Self {
-        HMap(HNil)
-    }
-}
-
-impl<'de, L> Deserialize<'de> for HMap<L> where
-    L: IntoReverse,
-    L::Output: MapDeserializable<'de>,
-    L::Output: IntoReverse<Output=L>,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: Deserializer<'de>,
-    {
-        deserializer.deserialize_map(HMapVisitor::default())
-    }
-}
-
-fn decl_type_wrapper<T, F, I, O>(_dep: &T, f: F, input: I) -> O where F: FnOnce(I) -> O {
     f(input)
+}
+
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+struct StrangeTypeA {
+    touko: u32,
+}
+
+impl Labelled for StrangeTypeA {
+    const KEY: &'static str = "touko";
+}
+
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+struct StrangeTypeB {
+    aspirin: String,
+}
+
+impl Labelled for StrangeTypeB {
+    const KEY: &'static str = "aspirin";
 }
 
 fn main() {
@@ -171,8 +46,22 @@ fn main() {
     let serialized = serde_json::to_string(&l.as_ref()).unwrap();
     let l2 = decl_type_wrapper(&l, deserialize, serialized.as_str());
     assert_eq!(l, l2);
+
+    let l = HLabelledMap(hlist![
+        StrangeTypeA { touko: 1 },
+        StrangeTypeB {
+            aspirin: String::from("a")
+        }
+    ]);
+    let serialized = serde_json::to_string(&l.as_ref()).unwrap();
+    println!("{}", serialized);
+    let l2 = decl_type_wrapper(&l, deserialize, serialized.as_str());
+    assert_eq!(l, l2);
 }
 
-fn deserialize<'de, T>(input: &'de str) -> T where T: Deserialize<'de> {
+fn deserialize<'de, T>(input: &'de str) -> T
+where
+    T: Deserialize<'de>,
+{
     serde_json::from_str(input).unwrap()
 }
