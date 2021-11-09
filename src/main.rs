@@ -1,4 +1,4 @@
-use frunk_core::hlist;
+use frunk_core::{hlist, HList};
 use serde::{Deserialize, Serialize};
 
 use crate::hlabeledlist::{HLabelledMap, Labelled};
@@ -32,6 +32,15 @@ impl Labelled for StrangeTypeB {
     const KEY: &'static str = "aspirin";
 }
 
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+struct StrangeTypeC {
+    commelina: String,
+}
+
+impl Labelled for StrangeTypeC {
+    const KEY: &'static str = "commelina";
+}
+
 fn main() {
     let l = hlist![
         (1, "2"),
@@ -48,7 +57,7 @@ fn main() {
     assert_eq!(l, l2);
 
     let l = HLabelledMap(hlist![
-        StrangeTypeA { touko: 1 },
+        Some(StrangeTypeA { touko: 1 }),
         StrangeTypeB {
             aspirin: String::from("a")
         }
@@ -57,6 +66,10 @@ fn main() {
     println!("{}", serialized);
     let l2 = decl_type_wrapper(&l, deserialize, serialized.as_str());
     assert_eq!(l, l2);
+    let l2: HLabelledMap<HList![Option<StrangeTypeB>, StrangeTypeA, Option<StrangeTypeC>]> = serde_json::from_str(serialized.as_str()).unwrap();
+    println!("{:?}", l2);
+    let l2: HLabelledMap<HList![Option<StrangeTypeC>, StrangeTypeA]> = serde_json::from_str(serialized.as_str()).unwrap();
+    println!("{:?}", l2);
 }
 
 fn deserialize<'de, T>(input: &'de str) -> T

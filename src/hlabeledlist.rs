@@ -1,7 +1,7 @@
 use std::fmt::Formatter;
 
 use frunk_core::hlist::{HCons, HList, HNil};
-use serde::de::{MapAccess, Visitor};
+use serde::de::{IgnoredAny, MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -129,13 +129,13 @@ pub trait IntoHListFilled<Output>: HListMaybeUnfilled {
     fn convert<E: de::Error>(self) -> Result<Output, E>;
 }
 
-impl<H, T, TOutput> IntoHListFilled<HCons<Option<H>, TOutput>> for HCons<MaybeUnfilled<H>, T>
+impl<H, T, TOutput> IntoHListFilled<HCons<Option<H>, TOutput>> for HCons<MaybeUnfilled<Option<H>>, T>
 where
     T: IntoHListFilled<TOutput>,
     TOutput: HList,
 {
     fn convert<E: de::Error>(self) -> Result<HCons<Option<H>, TOutput>, E> {
-        Ok(self.tail.convert()?.prepend(self.head.into()))
+        Ok(self.tail.convert()?.prepend(Option::from(self.head).and_then(|i|i)))
     }
 }
 
@@ -187,12 +187,28 @@ where
     }
 }
 
+impl<'de, H, T> FillByLabel<'de> for HCons<MaybeUnfilled<Option<H>>, T>
+    where
+        H: Labelled + Deserialize<'de>,
+        T: FillByLabel<'de>,
+{
+    fn fill_by_name<A: MapAccess<'de>>(&mut self, name: &str, map: &mut A) -> Result<(), A::Error> {
+        if H::KEY == name {
+            self.head.fill(Some(map.next_value()?));
+            Ok(())
+        } else {
+            self.tail.fill_by_name(name, map)
+        }
+    }
+}
+
 impl<'de> FillByLabel<'de> for HNil {
     fn fill_by_name<A: MapAccess<'de>>(
         &mut self,
         _name: &str,
-        _map: &mut A,
+        map: &mut A,
     ) -> Result<(), A::Error> {
+        let _: IgnoredAny = map.next_value()?;
         Ok(())
     }
 }
